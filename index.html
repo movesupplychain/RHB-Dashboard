@@ -8250,25 +8250,78 @@ function ensureReportsRendered(){
   }
   _repRender();
 }
+function _repDistinct(ci){
+  const def=_repDefs[_repState.active];
+  _repState._dcache = _repState._dcache || {};
+  const key=_repState.active+':'+ci;
+  if(_repState._dcache[key]) return _repState._dcache[key];
+  const seen=new Set(); def.rows.forEach(r=>seen.add(String(r[ci]==null?'':r[ci])));
+  const isNum = def.rows.length && typeof def.rows[0][ci]==='number';
+  const arr=[...seen].sort((a,b)=> isNum ? (parseFloat(a)-parseFloat(b)) : a.localeCompare(b));
+  _repState._dcache[key]=arr; return arr;
+}
 function _repFiltered(){
   const def=_repDefs[_repState.active]; let data=def.rows.slice();
   const f=_repState.filters;
-  Object.keys(f).forEach(ci=>{ const q=String(f[ci]).toLowerCase(); if(!q) return;
-    data=data.filter(r=>String(r[ci]==null?'':r[ci]).toLowerCase().includes(q)); });
+  Object.keys(f).forEach(ci=>{ const set=f[ci]; if(!set) return;
+    data=data.filter(r=>set.has(String(r[ci]==null?'':r[ci]))); });
   if (_repState.sortKey!=null){ const k=_repState.sortKey,d=_repState.sortDir;
-    data.sort((a,b)=>{ let x=a[k],y=b[k]; const nx=parseFloat(x),ny=parseFloat(y);
+    data.sort((a,b)=>{ let x=a[k],y=b[k];
       if(typeof x==='number'&&typeof y==='number') return (x-y)*d;
+      const nx=parseFloat(x),ny=parseFloat(y);
       if(!isNaN(nx)&&!isNaN(ny)&&typeof x!=='string'&&typeof y!=='string') return (nx-ny)*d;
       return String(x==null?'':x).localeCompare(String(y==null?'':y))*d; }); }
   return data;
 }
+function _repCloseMenu(){ const m=document.getElementById('rep-filter-menu'); if(m) m.remove();
+  document.removeEventListener('click',_repMenuOutside,true); }
+function _repMenuOutside(e){ const m=document.getElementById('rep-filter-menu');
+  if(m && !m.contains(e.target)) _repCloseMenu(); }
+function _repOpenMenu(ci, anchor){
+  const wasOpen = document.getElementById('rep-filter-menu') && document.getElementById('rep-filter-menu').dataset.ci==String(ci);
+  _repCloseMenu(); if(wasOpen) return;
+  const vals=_repDistinct(ci); const cur=_repState.filters[ci];
+  const isOn=v=> cur? cur.has(v) : true;
+  const menu=document.createElement('div'); menu.id='rep-filter-menu'; menu.dataset.ci=String(ci);
+  menu.style.cssText='position:absolute;z-index:9999;background:#fff;border:1px solid #c9d3dd;border-radius:6px;box-shadow:0 6px 22px rgba(0,0,0,.18);font-size:12px;min-width:210px;max-width:340px;';
+  const rect=anchor.getBoundingClientRect();
+  menu.style.left=Math.max(6,(window.scrollX+rect.right-210))+'px';
+  menu.style.top=(window.scrollY+rect.bottom+4)+'px';
+  let inner='<div style="padding:8px 10px;border-bottom:1px solid #eef2f6;"><input type="text" id="rep-menu-search" placeholder="Search values…" style="width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid #d3dce5;border-radius:4px;font-size:11.5px;font-family:inherit;"></div>';
+  inner+='<div style="padding:6px 10px;border-bottom:1px solid #eef2f6;display:flex;gap:12px;"><a href="#" id="rep-menu-all" style="color:#2F6DB5;text-decoration:none;">Select all</a><a href="#" id="rep-menu-none" style="color:#2F6DB5;text-decoration:none;">Clear</a></div>';
+  inner+='<div id="rep-menu-list" style="max-height:260px;overflow:auto;padding:4px 0;">';
+  vals.forEach(v=>{ const esc=String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    inner+=`<label class="rep-menu-item" data-v="${esc}" style="display:flex;align-items:center;gap:7px;padding:3px 11px;cursor:pointer;white-space:nowrap;"><input type="checkbox" ${isOn(v)?'checked':''} style="margin:0;"><span>${v===''?'<i style="color:#8a97a5;">(blank)</i>':esc}</span></label>`; });
+  inner+='</div>';
+  inner+='<div style="padding:8px 10px;border-top:1px solid #eef2f6;text-align:right;"><button id="rep-menu-apply" style="background:#15335E;color:#fff;border:none;border-radius:4px;padding:5px 14px;cursor:pointer;font-size:11.5px;">Apply</button></div>';
+  menu.innerHTML=inner; document.body.appendChild(menu);
+  menu.querySelector('#rep-menu-search').addEventListener('input',e=>{ const q=e.target.value.toLowerCase();
+    menu.querySelectorAll('.rep-menu-item').forEach(it=>{ it.style.display=it.dataset.v.toLowerCase().includes(q)?'flex':'none'; }); });
+  menu.querySelector('#rep-menu-all').addEventListener('click',e=>{ e.preventDefault();
+    menu.querySelectorAll('.rep-menu-item').forEach(it=>{ if(it.style.display!=='none') it.querySelector('input').checked=true; }); });
+  menu.querySelector('#rep-menu-none').addEventListener('click',e=>{ e.preventDefault();
+    menu.querySelectorAll('.rep-menu-item').forEach(it=>{ if(it.style.display!=='none') it.querySelector('input').checked=false; }); });
+  menu.querySelector('#rep-menu-apply').addEventListener('click',()=>{
+    const chosen=new Set(); menu.querySelectorAll('.rep-menu-item').forEach(it=>{ if(it.querySelector('input').checked) chosen.add(it.dataset.v); });
+    if(chosen.size===vals.length) delete _repState.filters[ci]; else _repState.filters[ci]=chosen;
+    _repCloseMenu(); _repRender(); });
+  setTimeout(()=>document.addEventListener('click',_repMenuOutside,true),0);
+}
 function _repRender(){
+  _repCloseMenu();
   const def=_repDefs[_repState.active]; const C=def.cols; const data=_repFiltered();
   const numCols=new Set(); C.forEach((c,i)=>{ if(def.rows.length && typeof def.rows[0][i]==='number') numCols.add(i); });
-  const arrow=i=>_repState.sortKey===i?(_repState.sortDir>0?' ▲':' ▼'):'';
-  let html='<thead><tr>'+C.map((c,i)=>`<th data-ri="${i}" class="${numCols.has(i)?'num':''}" style="cursor:pointer;white-space:nowrap;">${c}${arrow(i)}</th>`).join('')+'</tr>';
-  // filter row (funnel per column)
-  html+='<tr class="rep-filter-row">'+C.map((c,i)=>`<th style="padding:3px 4px;"><input data-fi="${i}" value="${(_repState.filters[i]||'').replace(/"/g,'&quot;')}" placeholder="⌕" style="width:100%;min-width:70px;box-sizing:border-box;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:10.5px;font-family:inherit;"></th>`).join('')+'</tr></thead><tbody>';
+  let html='<thead><tr>'+C.map((c,i)=>{
+    const active=_repState.sortKey===i;
+    const ar=active?(_repState.sortDir>0?'▲':'▼'):'⇅';
+    const arCol=active?'#C8A43C':'#9aa7b4';
+    const fset=_repState.filters[i];
+    const filtered=fset && fset.size < _repDistinct(i).length;
+    return `<th class="${numCols.has(i)?'num':''}" style="white-space:nowrap;">`
+      +`<span class="rep-sort" data-ri="${i}" style="cursor:pointer;user-select:none;">${c} <span style="color:${arCol};font-size:11px;">${ar}</span></span>`
+      +`<button class="rep-funnel" data-fi="${i}" title="Filter" style="margin-left:5px;border:none;background:none;cursor:pointer;font-size:10px;line-height:1;color:${filtered?'#C8A43C':'#9aa7b4'};padding:0 2px;">▼</button>`
+      +`</th>`;
+  }).join('')+'</tr></thead><tbody>';
   if(!data.length){ html+=`<tr><td colspan="${C.length}" style="padding:20px;text-align:center;color:#5C6B7A;">No matching rows.</td></tr>`; }
   else data.forEach(r=>{ html+='<tr>'+r.map((v,i)=>{
     if(i===0 && (_repState.active==='dead'||_repState.active==='over')) return `<td class="num">${_repFmt(v)}</td>`;
@@ -8280,10 +8333,9 @@ function _repRender(){
   html+='</tbody>';
   const tbl=document.getElementById('reports-table'); tbl.innerHTML=html;
   document.getElementById('reports-count').textContent=`${data.length.toLocaleString()} of ${def.rows.length.toLocaleString()} rows · ${def.name}`;
-  tbl.querySelectorAll('th[data-ri]').forEach(th=>th.addEventListener('click',()=>{ const i=+th.dataset.ri; if(_repState.sortKey===i)_repState.sortDir*=-1; else{_repState.sortKey=i;_repState.sortDir=numCols.has(i)?-1:1;} _repRender(); }));
-  tbl.querySelectorAll('input[data-fi]').forEach(inp=>{ inp.addEventListener('click',e=>e.stopPropagation());
-    inp.addEventListener('input',e=>{ _repState.filters[e.target.dataset.fi]=e.target.value; const pos=e.target.selectionStart; _repRender();
-      const ni=document.querySelector(`#reports-table input[data-fi="${e.target.dataset.fi}"]`); if(ni){ni.focus();try{ni.setSelectionRange(pos,pos);}catch(_){}}}); });
+  tbl.querySelectorAll('.rep-sort').forEach(sp=>sp.addEventListener('click',()=>{ const i=+sp.dataset.ri;
+    if(_repState.sortKey===i)_repState.sortDir*=-1; else{_repState.sortKey=i;_repState.sortDir=numCols.has(i)?-1:1;} _repRender(); }));
+  tbl.querySelectorAll('.rep-funnel').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); _repOpenMenu(+btn.dataset.fi, btn); }));
 }
 function _repAlertColor(v){ v=String(v||'').toLowerCase();
   if(v.includes('critical')) return '#FF5E44'; if(v.includes('discont')) return '#3A3A3A';
