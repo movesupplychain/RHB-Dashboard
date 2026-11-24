@@ -882,7 +882,8 @@
         <button class="ops-trigger active" data-report="dead"><span class="trigger-text">Dead Stocks</span></button>
         <button class="ops-trigger" data-report="over"><span class="trigger-text">Overstocks</span></button>
         <button class="ops-trigger" data-report="atk"><span class="trigger-text">At Risks</span></button>
-        <span id="reports-count" style="margin-left:14px; font-size:12px; color:var(--muted);"></span>
+        <input type="text" id="reports-search" placeholder="🔍 Search all columns…" style="margin-left:14px; padding:5px 9px; border:1px solid var(--border); border-radius:5px; font-size:12px; font-family:inherit; min-width:210px;">
+        <span id="reports-count" style="margin-left:12px; font-size:12px; color:var(--muted);"></span>
         <button class="clear-btn" id="reports-clearfilters" style="margin-left:auto;">Clear filters</button>
         <button class="clear-btn" id="reports-export" style="background:var(--green); color:#fff; border-color:var(--green);">⬇ Export to Excel</button>
       </div>
@@ -8236,16 +8237,17 @@ const _repDefs = {
   over: { name:'Overstocks',   cols:(typeof REPORT_OVER_COLS!=='undefined'?REPORT_OVER_COLS:[]), rows:(typeof REPORT_OVER_ROWS!=='undefined'?REPORT_OVER_ROWS:[]) },
   atk:  { name:'At Risks',     cols:(typeof REPORT_ATK_COLS!=='undefined'?REPORT_ATK_COLS:[]),  rows:(typeof REPORT_ATK_ROWS!=='undefined'?REPORT_ATK_ROWS:[]) },
 };
-const _repState = { active:'dead', inited:false, filters:{}, sortKey:null, sortDir:1 };
+const _repState = { active:'dead', inited:false, filters:{}, sortKey:null, sortDir:1, search:'' };
 function _repFmt(v){ if (typeof v==='number') return v.toLocaleString('en-US'); return (v==null?'':String(v)); }
 function ensureReportsRendered(){
   if (!_repState.inited){
     _repState.inited = true;
     document.querySelectorAll('#reports-switch [data-report]').forEach(b => b.addEventListener('click', () => {
       document.querySelectorAll('#reports-switch [data-report]').forEach(x=>x.classList.remove('active'));
-      b.classList.add('active'); _repState.active=b.dataset.report; _repState.filters={}; _repState.sortKey=null; _repRender();
+      b.classList.add('active'); _repState.active=b.dataset.report; _repState.filters={}; _repState.sortKey=null; _repState.search=''; { const si=document.getElementById('reports-search'); if(si) si.value=''; } _repRender();
     }));
-    document.getElementById('reports-clearfilters').addEventListener('click', ()=>{ _repState.filters={}; _repState.sortKey=null; _repRender(); });
+    document.getElementById('reports-clearfilters').addEventListener('click', ()=>{ _repState.filters={}; _repState.sortKey=null; _repState.search=''; { const si=document.getElementById('reports-search'); if(si) si.value=''; } _repRender(); });
+    { const si=document.getElementById('reports-search'); if(si) si.addEventListener('input', e=>{ _repState.search=e.target.value; _repRender(); }); }
     document.getElementById('reports-export').addEventListener('click', _repExport);
   }
   _repRender();
@@ -8265,6 +8267,8 @@ function _repFiltered(){
   const f=_repState.filters;
   Object.keys(f).forEach(ci=>{ const set=f[ci]; if(!set) return;
     data=data.filter(r=>set.has(String(r[ci]==null?'':r[ci]))); });
+  const q=(_repState.search||'').trim().toLowerCase();
+  if(q) data=data.filter(r=>r.some(v=>String(v==null?'':v).toLowerCase().includes(q)));
   if (_repState.sortKey!=null){ const k=_repState.sortKey,d=_repState.sortDir;
     data.sort((a,b)=>{ let x=a[k],y=b[k];
       if(typeof x==='number'&&typeof y==='number') return (x-y)*d;
